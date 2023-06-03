@@ -1,11 +1,31 @@
 import torch
 from torch import nn
 import gym
+from argparse import ArgumentParser
 from gym.spaces import Box
 import numpy as np
 from collections import deque
+import time
+from torch.utils.tensorboard import SummaryWriter
+import wandb
+
+data = [0, 0]
+run_name = f"{int(time.time())}"
+writer = SummaryWriter(f"runs/{run_name}")
+
 
 from logger import Logger
+
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument("--ckpt", type=str, default="ckpt")
+    parser.add_argument("--num_steps", type=int, default=100_000)
+    parser.add_argument("--delay_ms", type=int, default=10)
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="if toggled, this experiment will be tracked with Weights and Biases")
+    parser.add_argument("--wandb-entity", type=str, default=None,
+        help="the entity (team) of wandb's project")
+    return parser.parse_args()
 
 
 class RacingNet(nn.Module):
@@ -62,6 +82,24 @@ class RacingNet(nn.Module):
 class CarRacing(gym.Wrapper):
     def __init__(self, frame_skip=0, frame_stack=4):
         self.env = gym.make("CarRacing-v1")
+         
+        args = parse_args()
+
+        wandb.init(
+            project="CarRacing",
+            entity=args.wandb_entity,
+            sync_tensorboard=True,
+            config=vars(args),
+            name=run_name,
+            monitor_gym=True,
+            save_code=True,
+        )
+        
+        writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
+        
         super().__init__(self.env)
 
         self.frame_skip = frame_skip
@@ -108,8 +146,13 @@ class CarRacing(gym.Wrapper):
     def reset(self):
         self.logger.log("Episode", self.n_episodes)
         self.logger.log("Reward", self.total_reward)
+        self.env = gym.wrappers.RecordEpisodeStatistics(self.env)
+        self.env = gym.wrappers.RecordVideo(self.env, f"videos2/{self.n_episodes}")
+        wandb.log({"video": wandb.Video( f"videos2/{self.n_episodes}/rl-video-episode-0.mp4", fps=4, format="gif")})
+
         self.logger.write()
         self.logger.print()
+
 
         self.t = 0
         self.last_reward_step = 0
@@ -146,4 +189,3 @@ class CarRacing(gym.Wrapper):
         self.frame_buf.append(new_frame)
 
         return self.get_observation(), reward, done, info
-
