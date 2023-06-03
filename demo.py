@@ -1,6 +1,7 @@
 import toml
 from argparse import ArgumentParser
 from os.path import join
+import gym
 
 from games.carracing import RacingNet, CarRacing
 from ppo import PPO
@@ -29,6 +30,9 @@ def main():
     args = parse_args()
 
     env = CarRacing(frame_skip=0, frame_stack=4,)
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+    env = gym.wrappers.RecordVideo(env, f"videos/")
+
     net = RacingNet(env.observation_space.shape, env.action_space.shape)
 
     ppo = PPO(
@@ -48,7 +52,7 @@ def main():
         save_interval=cfg["save_interval"],
     )
 
-    ppo.load(args.ckpt)
+    # ppo.load(args.ckpt)
 
     for i in range(args.num_steps):
         ppo.collect_trajectory(1, delay_ms=args.delay_ms)
