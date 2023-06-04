@@ -2,10 +2,10 @@ import torch
 import numpy as np
 import random
 import toml
-
+from torch.utils.tensorboard import SummaryWriter
 from games.carracing import RacingNet, CarRacing
-from games.bipedal import BipedalNet, BipedalWalker
 from ppo import PPO
+import wandb
 
 CONFIG_FILE = "config.toml"
 
@@ -26,16 +26,19 @@ def seed(seed):
 def main():
     cfg = load_config()
     seed(cfg["seed"])
+    wandb.init(project="CarRacing", config=cfg, monitor_gym=True)
 
     env = CarRacing(frame_skip=1, frame_stack=4,)
     net = RacingNet(env.observation_space.shape, env.action_space.shape)
 
     # env = BipedalWalker()
     # net = BipedalNet(env.observation_space.shape, env.action_space.shape)
+    writer = SummaryWriter(f"runs/{wandb.run.name}", "wandb")
 
     ppo = PPO(
         env,
         net,
+        env_name="CarRacing",  # Set the env_name parameter
         lr=cfg["lr"],
         gamma=cfg["gamma"],
         batch_size=cfg["batch_size"],
@@ -48,10 +51,13 @@ def main():
         horizon=cfg["horizon"],
         save_dir=cfg["save_dir"],
         save_interval=cfg["save_interval"],
+        writer=wandb,
     )
     ppo.train()
 
     env.close()
+    wandb.finish()
+
 
 
 if __name__ == "__main__":
