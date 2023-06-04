@@ -9,13 +9,30 @@ from torch.utils.data import DataLoader
 from os import path
 from time import sleep
 from xvfbwrapper import Xvfb
+import wandb
+import time
+from torch.utils.tensorboard import SummaryWriter
+from typing import Optional
 
 from memory import Memory
 from logger import Logger
 
+# run_name = f"{int(time.time())}"
+# writer = SummaryWriter(f"runs/{run_name}")
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 vdisplay = Xvfb()
 vdisplay.start()
+
+# wandb.init(
+#             project="CarRacing",
+#             entity=None,
+#             sync_tensorboard=True,
+#             config=None,
+#             name=run_name,
+#             monitor_gym=True,
+#             save_code=True,
+#         )
 
 
 class PPO:
@@ -23,6 +40,7 @@ class PPO:
         self,
         env: gym.Env,
         net: nn.Module,
+        env_name: str,
         lr: float = 1e-4,
         batch_size: int = 128,
         gamma: float = 0.99,
@@ -35,8 +53,11 @@ class PPO:
         entropy_coef: float = 0.01,
         save_dir: str = "ckpt",
         save_interval: int = 100,
+        writer: wandb.run = None,
+
     ) -> None:
         self.env = env
+        self.env_name = env_name 
         self.net = net.to(device)
 
         self.lr = lr
@@ -51,6 +72,7 @@ class PPO:
         self.entropy_coef = entropy_coef
         self.save_dir = save_dir
         self.save_interval = save_interval
+        self.writer = writer
 
         self.optim = optim.Adam(self.net.parameters(), lr=self.lr)
         self.logger = Logger("logs/training.csv")
@@ -88,8 +110,17 @@ class PPO:
 
                     avg_loss += loss
 
+            if step % self.save_interval == 0:
+                self.save(join(self.save_dir, f"net_{step}.pth"))
+
             self.logger.log("Loss", avg_loss / len(memory_loader))
-            self.logger.print(f"Step {step}")
+            # self.env = gym.wrappers.RecordEpisodeStatistics(self.env)
+            # self.env = gym.wrappers.RecordVideo(self.env, f"videos2/{step}")
+            if self.writer is not None:
+                self.writer.log({"Loss": avg_loss / len(memory_loader)})
+                self.writer.log({"Total Reward": memory.rewards.sum().item()})
+                self.writer.log({"Best run": memory.rewards.max().item()})
+
             self.logger.write()
 
             if step % self.save_interval == 0:
@@ -172,7 +203,7 @@ class PPO:
 
             self.state = next_state
 
-            # self.env.render()
+            self.env.render()
 
             if delay_ms > 0:
                 sleep(delay_ms / 1000)
@@ -237,3 +268,4 @@ class PPO:
 
     def close(self):
         vdisplay.stop()
+
